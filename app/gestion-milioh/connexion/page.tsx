@@ -1,32 +1,21 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { LockKeyhole } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
+import { isGestionnaire } from '@/lib/data'
 import { useAuth, useDemoMode } from '@/contexts/Providers'
 
 export default function AdminLoginPage() {
   const router = useRouter()
   const { demo } = useDemoMode()
-  const { user, isAdmin, adminChecked, signOut } = useAuth()
+  const { signOut } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [awaitingCheck, setAwaitingCheck] = useState(false)
-
-  useEffect(() => {
-    if (!awaitingCheck || !adminChecked) return
-    setAwaitingCheck(false)
-    if (isAdmin) {
-      router.replace('/gestion-milioh')
-    } else if (user) {
-      setError("Ce compte n'a pas accès à l'espace de gestion.")
-      signOut()
-    }
-  }, [awaitingCheck, adminChecked, isAdmin, user, router, signOut])
 
   async function handleLogin() {
     setError('')
@@ -36,11 +25,27 @@ export default function AdminLoginPage() {
     }
     if (!email.trim() || !password) { setError('Renseigne ton email et ton mot de passe.'); return }
     if (!supabase || !supabaseConfigured) { setError('Connexion à la base de données indisponible.'); return }
+
     setLoading(true)
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error: err } = await supabase.auth.signInWithPassword({ email, password })
+    if (err || !data.user) {
+      setLoading(false)
+      setError('Email ou mot de passe incorrect.')
+      return
+    }
+
+    // On vérifie l'appartenance à la table `gestionnaires` directement avec
+    // l'utilisateur renvoyé par la connexion, sans dépendre de l'état du
+    // contexte qui n'est pas encore à jour à cet instant précis.
+    const autorise = await isGestionnaire(data.user.id)
     setLoading(false)
-    if (err) { setError('Email ou mot de passe incorrect.'); return }
-    setAwaitingCheck(true)
+
+    if (autorise) {
+      router.replace('/gestion-milioh')
+    } else {
+      setError("Ce compte n'a pas accès à l'espace de gestion.")
+      await signOut()
+    }
   }
 
   return (
@@ -57,8 +62,8 @@ export default function AdminLoginPage() {
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
           </label>
           {error && <p className="field-error">{error}</p>}
-          <button type="submit" className="btn btn-primary full" disabled={loading || awaitingCheck}>
-            <LockKeyhole size={16} /> {loading || awaitingCheck ? 'Vérification...' : 'Se connecter'}
+          <button type="submit" className="btn btn-primary full" disabled={loading}>
+            <LockKeyhole size={16} /> {loading ? 'Vérification...' : 'Se connecter'}
           </button>
         </form>
       </div>

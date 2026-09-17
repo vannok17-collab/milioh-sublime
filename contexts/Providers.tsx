@@ -143,12 +143,16 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
-  const [adminChecked, setAdminChecked] = useState(false)
+  // On mémorise POUR QUEL utilisateur la vérification a été faite, plutôt
+  // qu'un simple booléen : sinon, juste après une connexion, `adminChecked`
+  // reste à `true` (hérité de l'état "déconnecté") pendant un instant et le
+  // code appelant conclut à tort que le compte n'est pas gestionnaire.
+  const [adminCheckedFor, setAdminCheckedFor] = useState<string | null>(null)
+  const adminChecked = user ? adminCheckedFor === user.id : true
 
   useEffect(() => {
     if (!supabaseConfigured || !supabase) {
       setLoading(false)
-      setAdminChecked(true)
       return
     }
     supabase.auth.getSession().then(({ data }) => {
@@ -163,16 +167,16 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
-    setAdminChecked(false)
     if (!user) {
       setIsAdmin(false)
-      setAdminChecked(true)
+      setAdminCheckedFor(null)
       return
     }
-    isGestionnaire(user.id).then((ok) => {
+    const userId = user.id
+    isGestionnaire(userId).then((ok) => {
       if (!cancelled) {
         setIsAdmin(ok)
-        setAdminChecked(true)
+        setAdminCheckedFor(userId)
       }
     })
     return () => { cancelled = true }
