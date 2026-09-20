@@ -4,9 +4,9 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, CreditCard, MapPin, Truck, WalletCards } from 'lucide-react'
 import { useCart, useAuth } from '@/contexts/Providers'
-import { listProducts, createOrder, decrementStock } from '@/lib/data'
-import type { DeliveryZoneType, MobileOperator, Order, OrderDelivery, OrderItem, PaymentMethod, Product } from '@/lib/types'
-import { COMMUNES_ABIDJAN, COUNTRY_CODES, PAYS_INTERNATIONAL, TRANSPORTEURS_INTERIEUR, TRANSPORTEURS_INTERNATIONAL, validatePhoneDigits } from '@/lib/delivery'
+import { getProductsByIds, createOrder, decrementStock, listCommunesLivraison } from '@/lib/data'
+import type { CommuneLivraison, DeliveryZoneType, MobileOperator, Order, OrderDelivery, OrderItem, PaymentMethod, Product } from '@/lib/types'
+import { COUNTRY_CODES, PAYS_INTERNATIONAL, TRANSPORTEURS_INTERIEUR, TRANSPORTEURS_INTERNATIONAL, validatePhoneDigits } from '@/lib/delivery'
 import { MOBILE_MONEY_NUMBERS, whatsappLink } from '@/lib/config'
 import { whatsappOrderMessage } from '@/lib/order'
 
@@ -29,7 +29,8 @@ export default function CheckoutPage() {
   // Step 2 — livraison
   const [mode, setMode] = useState<'boutique' | 'livreur_client'>('boutique')
   const [zoneType, setZoneType] = useState<DeliveryZoneType>('abidjan')
-  const [commune, setCommune] = useState(COMMUNES_ABIDJAN[0].nom)
+  const [commune, setCommune] = useState('')
+  const [communes, setCommunes] = useState<CommuneLivraison[]>([])
   const [adresse, setAdresse] = useState('')
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [geoStatus, setGeoStatus] = useState('')
@@ -47,7 +48,17 @@ export default function CheckoutPage() {
 
   const [createdOrder, setCreatedOrder] = useState<Order | null>(null)
 
-  useEffect(() => { listProducts().then(setProducts) }, [])
+  useEffect(() => {
+    if (lines.length === 0) { setProducts([]); return }
+    getProductsByIds(lines.map((l) => l.produit_id)).then(setProducts)
+  }, [lines])
+
+  useEffect(() => {
+    listCommunesLivraison().then((list) => {
+      setCommunes(list)
+      setCommune((c) => c || list[0]?.nom || '')
+    })
+  }, [])
 
   const items: OrderItem[] = useMemo(() => {
     return lines
@@ -65,9 +76,9 @@ export default function CheckoutPage() {
 
   const frais = useMemo(() => {
     if (mode === 'livreur_client') return 0
-    if (zoneType === 'abidjan') return COMMUNES_ABIDJAN.find((c) => c.nom === commune)?.frais ?? 0
+    if (zoneType === 'abidjan') return communes.find((c) => c.nom === commune)?.frais ?? 0
     return 0 // interieur/international : frais convenus avec le transporteur, non facturés en ligne
-  }, [mode, zoneType, commune])
+  }, [mode, zoneType, commune, communes])
 
   const total = totalArticles + frais
   const country = COUNTRY_CODES[countryIdx]
@@ -92,10 +103,19 @@ export default function CheckoutPage() {
 
   function useMyLocation() {
     if (!navigator.geolocation) { setGeoStatus('Géolocalisation non disponible sur cet appareil.'); return }
+    if (!window.isSecureContext) { setGeoStatus('La géolocalisation nécessite une connexion sécurisée (https).'); return }
     setGeoStatus('Localisation en cours...')
     navigator.geolocation.getCurrentPosition(
       (pos) => { setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGeoStatus('Position enregistrée ✓') },
-      () => setGeoStatus("Permission refusée ou position indisponible."),
+      (err) => {
+        // Messages précis par code d'erreur — plus facile à diagnostiquer
+        // qu'un message générique quand ça ne marche pas chez la cliente.
+        if (err.code === err.PERMISSION_DENIED) setGeoStatus("Localisation refusée — vérifie l'autorisation de géolocalisation du navigateur pour ce site.")
+        else if (err.code === err.POSITION_UNAVAILABLE) setGeoStatus('Position indisponible pour le moment (GPS/réseau).')
+        else if (err.code === err.TIMEOUT) setGeoStatus('Délai dépassé pour obtenir la position — réessaie.')
+        else setGeoStatus('Impossible de récupérer la position.')
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     )
   }
 
@@ -208,7 +228,7 @@ export default function CheckoutPage() {
                   <>
                     <label>Commune
                       <select value={commune} onChange={(e) => setCommune(e.target.value)}>
-                        {COMMUNES_ABIDJAN.map((c) => <option key={c.nom} value={c.nom}>{c.nom} — {c.frais.toLocaleString('fr-FR')} FCFA</option>)}
+                        {communes.map((c) => <option key={c.nom} value={c.nom}>{c.nom} — {c.frais.toLocaleString('fr-FR')} FCFA</option>)}
                       </select>
                     </label>
                     <label>Adresse

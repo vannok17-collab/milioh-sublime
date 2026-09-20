@@ -1,0 +1,16 @@
+{
+  "id": "/gestion-milioh/",
+  "name": "Miliöh Sublime — Gestion",
+  "short_name": "Gestion",
+  "description": "Espace de gestion Miliöh Sublime",
+  "start_url": "/gestion-milioh/connexion",
+  "scope": "/gestion-milioh/",
+  "display": "standalone",
+  "background_color": "#0A0A0A",
+  "theme_color": "#C9A84C",
+  "lang": "fr",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/apple-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

@@ -12,6 +12,9 @@
 -- Trigger + fonction
 drop trigger if exists trg_enforce_client_order_update on commandes;
 drop function if exists enforce_client_order_update();
+drop function if exists add_gestionnaire_by_email(text);
+drop function if exists remove_gestionnaire_by_email(text);
+drop function if exists list_gestionnaires();
 
 -- Stockage (policies du bucket "images"). Supabase interdit la suppression
 -- directe de storage.objects / storage.buckets en SQL (protection contre la
@@ -31,6 +34,8 @@ drop table if exists avis cascade;
 drop table if exists diapo cascade;
 drop table if exists produits cascade;
 drop table if exists categories cascade;
+drop table if exists macro_categories cascade;
+drop table if exists communes_livraison cascade;
 drop table if exists gestionnaires cascade;
 
 -- ============================================================
@@ -52,6 +57,95 @@ alter table gestionnaires enable row level security;
 create policy "gestionnaires: lecture de son propre statut"
   on gestionnaires for select
   using (auth.uid() = user_id);
+
+-- Permet à une gestionnaire déjà en poste de donner ou retirer l'accès à
+-- quelqu'un d'autre (ex. une employée qui gère la boutique en son absence)
+-- sans jamais avoir besoin de passer par le développeur. Le compte cible
+-- doit déjà exister (créé via la page d'inscription) — ces fonctions ne
+-- créent jamais de compte, elles accordent seulement l'accès gestion à un
+-- compte existant. `security definer` est nécessaire pour lire auth.users,
+-- normalement inaccessible au rôle authenticated ; chaque fonction vérifie
+-- elle-même que l'appelant est déjà gestionnaire avant d'agir.
+create or replace function add_gestionnaire_by_email(p_email text)
+returns void as $$
+declare
+  target_id uuid;
+begin
+  if not exists (select 1 from gestionnaires g where g.user_id = auth.uid()) then
+    raise exception 'Seule une gestionnaire déjà en poste peut accorder cet accès.';
+  end if;
+  select id into target_id from auth.users where email = p_email;
+  if target_id is null then
+    raise exception 'Aucun compte trouvé avec cet email. La personne doit d''abord créer un compte.';
+  end if;
+  insert into gestionnaires (user_id) values (target_id) on conflict do nothing;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+create or replace function remove_gestionnaire_by_email(p_email text)
+returns void as $$
+declare
+  target_id uuid;
+begin
+  if not exists (select 1 from gestionnaires g where g.user_id = auth.uid()) then
+    raise exception 'Seule une gestionnaire déjà en poste peut retirer cet accès.';
+  end if;
+  select id into target_id from auth.users where email = p_email;
+  if target_id is null then
+    raise exception 'Aucun compte trouvé avec cet email.';
+  end if;
+  if target_id = auth.uid() then
+    raise exception 'Impossible de retirer ton propre accès depuis cet écran.';
+  end if;
+  delete from gestionnaires where user_id = target_id;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+create or replace function list_gestionnaires()
+returns table(email text, ajoute_le timestamptz) as $$
+begin
+  if not exists (select 1 from gestionnaires g where g.user_id = auth.uid()) then
+    raise exception 'Accès réservé aux gestionnaires.';
+  end if;
+  return query
+    select u.email, g.created_at
+    from gestionnaires g
+    join auth.users u on u.id = g.user_id
+    order by g.created_at;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+grant execute on function add_gestionnaire_by_email(text) to authenticated;
+grant execute on function remove_gestionnaire_by_email(text) to authenticated;
+grant execute on function list_gestionnaires() to authenticated;
+
+-- ---------- Macro-catégories ----------
+-- Autrefois figées dans le code (Bijoux/Femme/Homme/Bébé/Maison/Promos),
+-- elles sont maintenant gérées par la gestionnaire comme les
+-- sous-catégories. `nom` sert de clé naturelle : la renommer met à jour
+-- automatiquement tous les articles concernés (on update cascade) ; la
+-- supprimer est refusé tant qu'un article l'utilise encore (on delete
+-- restrict), pour ne jamais laisser un article sans catégorie valide.
+create table if not exists macro_categories (
+  nom text primary key,
+  ordre integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table macro_categories enable row level security;
+
+create policy "macro_categories: lecture publique"
+  on macro_categories for select
+  using (true);
+
+create policy "macro_categories: écriture gestionnaire uniquement"
+  on macro_categories for all
+  using (exists (select 1 from gestionnaires g where g.user_id = auth.uid()))
+  with check (exists (select 1 from gestionnaires g where g.user_id = auth.uid()));
+
+insert into macro_categories (nom, ordre) values
+  ('Bijoux', 0), ('Femme', 1), ('Homme', 2), ('Bébé', 3), ('Maison', 4), ('Promos', 5)
+on conflict (nom) do nothing;
 
 -- ---------- Catégories (sous-catégories dynamiques) ----------
 create table if not exists categories (
@@ -80,7 +174,7 @@ create table if not exists produits (
   prix_gros integer,
   quantite_min_gros integer not null default 5,
   stock integer not null default 0,
-  macro_categorie text not null check (macro_categorie in ('Bijoux','Femme','Homme','Bébé','Maison','Promos')),
+  macro_categorie text not null references macro_categories(nom) on update cascade on delete restrict,
   sous_categorie_id uuid references categories(id) on delete set null,
   image_url text,
   en_promo boolean not null default false,
@@ -258,6 +352,12 @@ create index if not exists idx_commandes_numero on commandes(numero);
 create index if not exists idx_commandes_client on commandes(client_user_id);
 create index if not exists idx_avis_produit on avis(produit_id);
 
+-- Index trigram : indispensable pour que la recherche texte (ilike) reste
+-- rapide avec plusieurs milliers d'articles plutôt que de scanner la table entière.
+create extension if not exists pg_trgm;
+create index if not exists idx_produits_nom_trgm on produits using gin (nom gin_trgm_ops);
+create index if not exists idx_produits_description_trgm on produits using gin (description gin_trgm_ops);
+
 -- ---------- Stockage des images (bucket public "images") ----------
 -- Les photos sont compressées côté navigateur avant l'envoi (voir
 -- lib/image-compress.ts) puis stockées ici plutôt qu'en base64 dans les
@@ -279,6 +379,43 @@ create policy "images: upload gestionnaire"
 create policy "images: suppression gestionnaire"
   on storage.objects for delete
   using (bucket_id = 'images' and exists (select 1 from gestionnaires g where g.user_id = auth.uid()));
+
+-- ---------- Frais de livraison (communes d'Abidjan) ----------
+-- Autrefois codés en dur, modifiables désormais par la gestionnaire dans
+-- Réglages et utilisés directement dans le tunnel de commande.
+create table if not exists communes_livraison (
+  nom text primary key,
+  frais integer not null default 0,
+  ordre integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table communes_livraison enable row level security;
+
+create policy "communes_livraison: lecture publique"
+  on communes_livraison for select
+  using (true);
+
+create policy "communes_livraison: écriture gestionnaire uniquement"
+  on communes_livraison for all
+  using (exists (select 1 from gestionnaires g where g.user_id = auth.uid()))
+  with check (exists (select 1 from gestionnaires g where g.user_id = auth.uid()));
+
+insert into communes_livraison (nom, frais, ordre) values
+  ('Bingerville', 1000, 0),
+  ('Cocody', 1500, 1),
+  ('Plateau', 1500, 2),
+  ('Marcory', 2000, 3),
+  ('Treichville', 2000, 4),
+  ('Koumassi', 2500, 5),
+  ('Adjamé', 2500, 6),
+  ('Yopougon', 3500, 7),
+  ('Abobo', 3500, 8),
+  ('Port-Bouët', 3000, 9),
+  ('Attécoubé', 3000, 10),
+  ('Songon', 5000, 11),
+  ('Anyama', 5000, 12)
+on conflict (nom) do nothing;
 
 -- ---------- Pour créer la première gestionnaire ----------
 -- Ce script vient de repartir de zéro : la table gestionnaires est vide,

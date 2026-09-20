@@ -3,10 +3,11 @@ export interface Commune {
   frais: number
 }
 
-// Tarifs par commune d'Abidjan — de 0 (retrait en main propre) à ~5000 FCFA
-// pour les communes les plus éloignées du centre de distribution.
-export const COMMUNES_ABIDJAN: Commune[] = [
-  { nom: 'Retrait en boutique (Bingerville)', frais: 0 },
+// Valeurs de départ seulement — utilisées pour l'amorçage initial (SQL seed
+// et mode démo). Une fois l'app connectée à Supabase, les tarifs réels
+// viennent de la table communes_livraison, modifiable par la gestionnaire
+// dans Réglages : ces montants ne reflètent plus forcément la réalité.
+export const DEFAULT_COMMUNES_ABIDJAN: Commune[] = [
   { nom: 'Bingerville', frais: 1000 },
   { nom: 'Cocody', frais: 1500 },
   { nom: 'Plateau', frais: 1500 },

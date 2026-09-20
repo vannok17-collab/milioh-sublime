@@ -4,14 +4,17 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react'
 import { useCart } from '@/contexts/Providers'
-import { listProducts } from '@/lib/data'
+import { getProductsByIds } from '@/lib/data'
 import type { Product } from '@/lib/types'
 
 export default function CartPage() {
   const { lines, updateQuantity, removeFromCart } = useCart()
   const [products, setProducts] = useState<Product[]>([])
 
-  useEffect(() => { listProducts().then(setProducts) }, [])
+  useEffect(() => {
+    if (lines.length === 0) { setProducts([]); return }
+    getProductsByIds(lines.map((l) => l.produit_id)).then(setProducts)
+  }, [lines])
 
   const items = lines
     .map((l) => ({ line: l, product: products.find((p) => p.id === l.produit_id) }))

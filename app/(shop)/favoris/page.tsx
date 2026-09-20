@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Heart } from 'lucide-react'
 import { useCart } from '@/contexts/Providers'
-import { listProducts } from '@/lib/data'
+import { getProductsByIds } from '@/lib/data'
 import type { Product } from '@/lib/types'
 import { ProductCard } from '@/components/shop/ProductCard'
 
@@ -11,9 +11,12 @@ export default function FavoritesPage() {
   const { favorites } = useCart()
   const [products, setProducts] = useState<Product[]>([])
 
-  useEffect(() => { listProducts().then(setProducts) }, [])
+  useEffect(() => {
+    if (favorites.length === 0) { setProducts([]); return }
+    getProductsByIds(favorites).then(setProducts)
+  }, [favorites])
 
-  const favProducts = products.filter((p) => favorites.includes(p.id))
+  const favProducts = products
 
   return (
     <div className="page-content">

@@ -1,4 +1,6 @@
-import type { Category, DiapoImage, Order, Product, Review, ReturnRequest } from './types'
+import type { Category, DiapoImage, MacroCategoryRow, Order, Product, Review, ReturnRequest, CommuneLivraison } from './types'
+import { DEFAULT_MACRO_CATEGORIES } from './types'
+import { DEFAULT_COMMUNES_ABIDJAN } from './delivery'
 
 // All demo data lives in localStorage under this prefix so it never
 // touches a shared backend and is obviously scoped to one device.
@@ -30,6 +32,9 @@ const SEED_CATEGORIES: Category[] = [
   { id: "c4", nom: "Boucles d'oreilles" },
   { id: 'c5', nom: 'Ensembles / Parures' },
 ]
+
+const SEED_MACRO_CATEGORIES: MacroCategoryRow[] = DEFAULT_MACRO_CATEGORIES.map((nom, ordre) => ({ nom, ordre }))
+const SEED_COMMUNES: CommuneLivraison[] = DEFAULT_COMMUNES_ABIDJAN.map((c, ordre) => ({ ...c, ordre }))
 
 const SEED_IMAGES = [
   'https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=1000&q=85',
@@ -68,6 +73,46 @@ export const demoStore = {
     },
     remove(id: string) {
       write('categories', demoStore.categories.all().filter((c) => c.id !== id))
+    },
+  },
+  macroCategories: {
+    all(): MacroCategoryRow[] {
+      return read('macro_categories', SEED_MACRO_CATEGORIES).sort((a, b) => a.ordre - b.ordre)
+    },
+    add(nom: string): MacroCategoryRow {
+      const list = demoStore.macroCategories.all()
+      const row: MacroCategoryRow = { nom, ordre: list.length }
+      write('macro_categories', [...list, row])
+      return row
+    },
+    rename(nom: string, nouveauNom: string) {
+      write('macro_categories', demoStore.macroCategories.all().map((c) => (c.nom === nom ? { ...c, nom: nouveauNom } : c)))
+      // Répercute le renommage sur les articles, comme le ferait "on update cascade" côté base.
+      write('products', demoStore.products.all().map((p) => (p.macro_categorie === nom ? { ...p, macro_categorie: nouveauNom } : p)))
+    },
+    remove(nom: string) {
+      const enUsage = demoStore.products.all().some((p) => p.macro_categorie === nom)
+      if (enUsage) {
+        throw new Error('Impossible de supprimer : des articles utilisent encore cette macro-catégorie. Réaffecte-les d\u2019abord.')
+      }
+      write('macro_categories', demoStore.macroCategories.all().filter((c) => c.nom !== nom))
+    },
+  },
+  communesLivraison: {
+    all(): CommuneLivraison[] {
+      return read('communes_livraison', SEED_COMMUNES).sort((a, b) => a.ordre - b.ordre)
+    },
+    add(nom: string, frais: number): CommuneLivraison {
+      const list = demoStore.communesLivraison.all()
+      const row: CommuneLivraison = { nom, frais, ordre: list.length }
+      write('communes_livraison', [...list, row])
+      return row
+    },
+    updateFrais(nom: string, frais: number) {
+      write('communes_livraison', demoStore.communesLivraison.all().map((c) => (c.nom === nom ? { ...c, frais } : c)))
+    },
+    remove(nom: string) {
+      write('communes_livraison', demoStore.communesLivraison.all().filter((c) => c.nom !== nom))
     },
   },
   products: {

@@ -1,6 +1,6 @@
 'use client'
 
-import { MessageCircle, Phone, MapPin } from 'lucide-react'
+import { MessageCircle, Phone } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { whatsappLink, WHATSAPP_NUMBER } from '@/lib/config'
 
@@ -10,7 +10,7 @@ export default function ContactPage() {
       <div className="contact-hero">
         <Logo />
         <h2>Miliöh Sublime</h2>
-        <p>Bingerville, Abidjan — Côte d&apos;Ivoire</p>
+        <p>Livraison à Abidjan et partout en Côte d&apos;Ivoire</p>
       </div>
       <div className="contact-links">
         <a href={whatsappLink('Bonjour, j\u2019ai une question pour Miliöh Sublime.')} target="_blank" rel="noreferrer">
@@ -20,10 +20,6 @@ export default function ContactPage() {
         <a href={`tel:+${WHATSAPP_NUMBER}`}>
           <Phone />
           <div><strong>Appeler</strong><span>+{WHATSAPP_NUMBER}</span></div>
-        </a>
-        <a href="https://maps.google.com/?q=Bingerville,Abidjan" target="_blank" rel="noreferrer">
-          <MapPin />
-          <div><strong>Boutique</strong><span>Bingerville, Abidjan</span></div>
         </a>
       </div>
     </div>

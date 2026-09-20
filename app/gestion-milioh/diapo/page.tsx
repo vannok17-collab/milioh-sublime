@@ -1,23 +1,39 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp, Trash2, Upload } from 'lucide-react'
-import { addDiapoImage, listDiapo, listProducts, removeDiapoImage, reorderDiapo } from '@/lib/data'
+import { ArrowDown, ArrowUp, Search, Trash2, Upload } from 'lucide-react'
+import { addDiapoImage, getProductsByIds, listDiapo, queryProducts, removeDiapoImage, reorderDiapo } from '@/lib/data'
 import { uploadImage } from '@/lib/storage'
 import type { DiapoImage, Product } from '@/lib/types'
 
 export default function DiapoPage() {
   const [images, setImages] = useState<DiapoImage[]>([])
-  const [products, setProducts] = useState<Product[]>([])
+  const [linkedProducts, setLinkedProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [newUrl, setNewUrl] = useState('')
-  const [newProduit, setNewProduit] = useState('')
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+
+  // Recherche du produit à lier — on ne charge jamais tout le catalogue ici,
+  // seulement les quelques résultats correspondant à ce que la gestionnaire tape.
+  const [productSearch, setProductSearch] = useState('')
+  const [productResults, setProductResults] = useState<Product[]>([])
 
   async function refresh() {
-    const [d, p] = await Promise.all([listDiapo(), listProducts()])
-    setImages(d); setProducts(p); setLoading(false)
+    const d = await listDiapo()
+    setImages(d)
+    const ids = Array.from(new Set(d.map((i) => i.produit_id).filter(Boolean))) as string[]
+    setLinkedProducts(await getProductsByIds(ids))
+    setLoading(false)
   }
   useEffect(() => { refresh() }, [])
+
+  useEffect(() => {
+    if (!productSearch.trim()) { setProductResults([]); return }
+    const t = setTimeout(() => {
+      queryProducts({ search: productSearch, pageSize: 8 }).then((res) => setProductResults(res.items))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [productSearch])
 
   const [uploading, setUploading] = useState(false)
 
@@ -28,8 +44,8 @@ export default function DiapoPage() {
 
   async function handleAdd() {
     if (!newUrl) return
-    await addDiapoImage(newUrl, newProduit || null)
-    setNewUrl(''); setNewProduit('')
+    await addDiapoImage(newUrl, selectedProduct?.id ?? null)
+    setNewUrl(''); setSelectedProduct(null); setProductSearch(''); setProductResults([])
     refresh()
   }
 
@@ -63,12 +79,33 @@ export default function DiapoPage() {
           {newUrl ? 'Image sélectionnée ✓' : uploading ? 'Compression en cours...' : 'Choisir une image'}
           <input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
         </label>
+
         <label>Produit mis en avant (optionnel)
-          <select value={newProduit} onChange={(e) => setNewProduit(e.target.value)}>
-            <option value="">Aucun</option>
-            {products.map((p) => <option key={p.id} value={p.id}>{p.nom}</option>)}
-          </select>
+          <div className="search-box">
+            <Search />
+            <input
+              placeholder="Rechercher un produit à lier..."
+              value={selectedProduct ? selectedProduct.nom : productSearch}
+              onChange={(e) => { setSelectedProduct(null); setProductSearch(e.target.value) }}
+            />
+          </div>
         </label>
+        {!selectedProduct && productResults.length > 0 && (
+          <div className="inventory-list" style={{ marginTop: '.4rem' }}>
+            {productResults.map((p) => (
+              <button
+                key={p.id}
+                className="inventory-row"
+                style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                onClick={() => { setSelectedProduct(p); setProductResults([]) }}
+              >
+                <img src={p.image_url ?? '/placeholder.jpg'} alt={p.nom} loading="lazy" />
+                <div className="inventory-name"><strong>{p.nom}</strong></div>
+              </button>
+            ))}
+          </div>
+        )}
+
         <button className="btn btn-primary full" disabled={!newUrl} onClick={handleAdd}>Ajouter au bandeau</button>
       </div>
 
@@ -78,7 +115,7 @@ export default function DiapoPage() {
             <img src={img.image_url} alt="" loading="lazy" decoding="async" />
             <div className="inventory-name">
               <strong>Image {i + 1}</strong>
-              <span>{products.find((p) => p.id === img.produit_id)?.nom ?? 'Aucun produit lié'}</span>
+              <span>{linkedProducts.find((p) => p.id === img.produit_id)?.nom ?? 'Aucun produit lié'}</span>
             </div>
             <button className="icon-btn" disabled={i === 0} onClick={() => move(img.id, -1)} aria-label="Monter"><ArrowUp size={16} /></button>
             <button className="icon-btn" disabled={i === images.length - 1} onClick={() => move(img.id, 1)} aria-label="Descendre"><ArrowDown size={16} /></button>

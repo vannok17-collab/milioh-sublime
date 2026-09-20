@@ -1,6 +1,15 @@
-export type MacroCategory = 'Bijoux' | 'Femme' | 'Homme' | 'Bébé' | 'Maison' | 'Promos'
+// Les macro-catégories étaient autrefois figées ; la gestionnaire peut
+// désormais les ajouter/renommer/supprimer, comme les sous-catégories.
+// On garde ces noms comme valeurs de départ (voir 0001_init.sql), mais le
+// type est maintenant une simple chaîne — la liste réelle vient de la table
+// macro_categories.
+export type MacroCategory = string
+export const DEFAULT_MACRO_CATEGORIES = ['Bijoux', 'Femme', 'Homme', 'Bébé', 'Maison', 'Promos']
 
-export const MACRO_CATEGORIES: MacroCategory[] = ['Bijoux', 'Femme', 'Homme', 'Bébé', 'Maison', 'Promos']
+export interface MacroCategoryRow {
+  nom: string
+  ordre: number
+}
 
 export interface Category {
   id: string
@@ -144,6 +153,12 @@ export interface ReturnRequest {
   description: string
   statut: ReturnStatus
   created_at: string
+}
+
+export interface CommuneLivraison {
+  nom: string
+  frais: number
+  ordre: number
 }
 
 export interface CartLine {

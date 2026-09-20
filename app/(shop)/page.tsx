@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { listDiapo, listProducts } from '@/lib/data'
-import type { DiapoImage, Product } from '@/lib/types'
-import { MACRO_CATEGORIES } from '@/lib/types'
+import { listDiapo, listFeaturedProducts, listMacroCategories, getProductsByIds } from '@/lib/data'
+import type { DiapoImage, MacroCategoryRow, Product } from '@/lib/types'
 import { ProductCard } from '@/components/shop/ProductCard'
 
 const CATEGORY_IMAGES: Record<string, string> = {
@@ -16,17 +15,25 @@ const CATEGORY_IMAGES: Record<string, string> = {
   Maison: 'https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?auto=format&fit=crop&w=400&q=70',
   Promos: 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=400&q=70',
 }
+// Une macro-catégorie créée par la gestionnaire n'a pas forcément d'image dédiée : on retombe sur celle-ci.
+const DEFAULT_CATEGORY_IMAGE = 'https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=400&q=70'
 
 export default function HomePage() {
   const [diapo, setDiapo] = useState<DiapoImage[]>([])
-  const [products, setProducts] = useState<Product[]>([])
+  const [diapoProducts, setDiapoProducts] = useState<Product[]>([])
+  const [featured, setFeatured] = useState<Product[]>([])
+  const [macroCategories, setMacroCategories] = useState<MacroCategoryRow[]>([])
   const [slide, setSlide] = useState(0)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([listDiapo(), listProducts()]).then(([d, p]) => {
+    listMacroCategories().then(setMacroCategories)
+    listDiapo().then(async (d) => {
       setDiapo(d)
-      setProducts(p)
+      const ids = Array.from(new Set(d.map((i) => i.produit_id).filter(Boolean))) as string[]
+      const [linked, promos] = await Promise.all([getProductsByIds(ids), listFeaturedProducts(4)])
+      setDiapoProducts(linked)
+      setFeatured(promos)
       setLoading(false)
     })
   }, [])
@@ -37,9 +44,8 @@ export default function HomePage() {
     return () => clearInterval(t)
   }, [diapo.length])
 
-  const featured = products.filter((p) => p.en_promo).slice(0, 4)
   const current = diapo[slide]
-  const currentProduct = current ? products.find((p) => p.id === current.produit_id) : undefined
+  const currentProduct = current ? diapoProducts.find((p) => p.id === current.produit_id) : undefined
 
   return (
     <div className="page-content">
@@ -67,10 +73,10 @@ export default function HomePage() {
           </div>
         </div>
         <div className="category-grid">
-          {MACRO_CATEGORIES.map((cat) => (
-            <Link key={cat} href={`/catalogue?categorie=${encodeURIComponent(cat)}`} className="category-tile">
-              <img src={CATEGORY_IMAGES[cat]} alt={cat} loading="lazy" decoding="async" />
-              <span>{cat}</span>
+          {macroCategories.map((cat) => (
+            <Link key={cat.nom} href={`/catalogue?categorie=${encodeURIComponent(cat.nom)}`} className="category-tile">
+              <img src={CATEGORY_IMAGES[cat.nom] ?? DEFAULT_CATEGORY_IMAGE} alt={cat.nom} loading="lazy" decoding="async" />
+              <span>{cat.nom}</span>
             </Link>
           ))}
         </div>

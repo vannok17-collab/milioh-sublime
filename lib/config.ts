@@ -1,16 +1,19 @@
 import type { MobileOperator } from './types'
 
-// Numéro WhatsApp de la boutique (format international, sans le +).
-export const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '2250000000000'
+// Numéros en dur plutôt qu'en variables d'environnement : les variables
+// d'environnement Vercel posaient problème (non prises en compte après
+// déploiement), donc ces valeurs réelles sont directement dans le code.
+// Pour les changer : modifier ici, puis git push (redéploiement automatique).
 
-// Chaque opérateur Mobile Money a son propre numéro de réception — ils ne
-// partagent jamais le même compte. Un opérateur non configuré retombe sur
-// un texte explicite plutôt que d'afficher un faux numéro.
+// Numéro WhatsApp de la boutique (format international, sans le +).
+export const WHATSAPP_NUMBER = '225101477411'
+
+// Chaque opérateur Mobile Money a son propre numéro de réception.
 export const MOBILE_MONEY_NUMBERS: Record<MobileOperator, string> = {
-  Orange: process.env.NEXT_PUBLIC_MOBILE_MONEY_ORANGE || 'Numéro non configuré',
-  MTN: process.env.NEXT_PUBLIC_MOBILE_MONEY_MTN || 'Numéro non configuré',
-  Wave: process.env.NEXT_PUBLIC_MOBILE_MONEY_WAVE || 'Numéro non configuré',
-  Moov: process.env.NEXT_PUBLIC_MOBILE_MONEY_MOOV || 'Numéro non configuré',
+  Orange: '0707 905 222',
+  MTN: '0545 577 511',
+  Wave: '0101 477 411 ou 0707 905 222 ou 0545 577 511',
+  Moov: '0101 477 411',
 }
 
 export function mobileMoneyNumberFor(operateur: MobileOperator): string {

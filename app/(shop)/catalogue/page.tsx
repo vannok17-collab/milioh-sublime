@@ -1,14 +1,14 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Search, SlidersHorizontal } from 'lucide-react'
-import { listCategories, listProducts } from '@/lib/data'
-import type { Category, MacroCategory, Product } from '@/lib/types'
-import { MACRO_CATEGORIES } from '@/lib/types'
+import { listCategories, listMacroCategories, queryProducts } from '@/lib/data'
+import type { Category, MacroCategoryRow, Product } from '@/lib/types'
 import { ProductCard } from '@/components/shop/ProductCard'
 
 type Sort = 'defaut' | 'az' | 'prix_asc' | 'prix_desc'
+const PAGE_SIZE = 24
 
 function CatalogueInner() {
   const router = useRouter()
@@ -16,35 +16,44 @@ function CatalogueInner() {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const [page, setPage] = useState(0)
   const [query, setQuery] = useState('')
-  const [macro, setMacro] = useState<MacroCategory | 'Tous'>((params.get('categorie') as MacroCategory) || 'Tous')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [macroCategories, setMacroCategories] = useState<MacroCategoryRow[]>([])
+  const [macro, setMacro] = useState<string>(params.get('categorie') || 'Tous')
   const [sub, setSub] = useState<string | 'Toutes'>('Toutes')
   const [sort, setSort] = useState<Sort>('defaut')
 
+  // Recherche débattue à 350ms : évite une requête base de données à chaque
+  // frappe — essentiel pour rester réactif avec un très grand catalogue.
   useEffect(() => {
-    Promise.all([listProducts(), listCategories()]).then(([p, c]) => {
-      setProducts(p)
-      setCategories(c)
-      setLoading(false)
-    })
+    const t = setTimeout(() => setDebouncedQuery(query), 350)
+    return () => clearTimeout(t)
+  }, [query])
+
+  useEffect(() => {
+    listCategories().then(setCategories)
+    listMacroCategories().then(setMacroCategories)
   }, [])
 
-  const filtered = useMemo(() => {
-    let list = products
-    if (macro !== 'Tous') list = list.filter((p) => p.macro_categorie === macro)
-    if (sub !== 'Toutes') list = list.filter((p) => p.sous_categorie_id === sub)
-    if (query.trim()) {
-      const q = query.trim().toLowerCase()
-      list = list.filter((p) => p.nom.toLowerCase().includes(q) || p.description.toLowerCase().includes(q))
-    }
-    const withPrice = (p: Product) => (p.en_promo && p.prix_promo != null ? p.prix_promo : p.prix_detail)
-    switch (sort) {
-      case 'az': return [...list].sort((a, b) => a.nom.localeCompare(b.nom))
-      case 'prix_asc': return [...list].sort((a, b) => withPrice(a) - withPrice(b))
-      case 'prix_desc': return [...list].sort((a, b) => withPrice(b) - withPrice(a))
-      default: return list
-    }
-  }, [products, macro, sub, query, sort])
+  const requestId = useRef(0)
+
+  const runQuery = useCallback((targetPage: number, replace: boolean) => {
+    const id = ++requestId.current
+    if (replace) setLoading(true); else setLoadingMore(true)
+    queryProducts({ search: debouncedQuery, macro, sousCategorieId: sub, sort, page: targetPage, pageSize: PAGE_SIZE }).then((res) => {
+      if (id !== requestId.current) return // une requête plus récente est déjà partie, on ignore celle-ci
+      setProducts((prev) => (replace ? res.items : [...prev, ...res.items]))
+      setHasMore(res.hasMore)
+      setPage(targetPage)
+      setLoading(false)
+      setLoadingMore(false)
+    })
+  }, [debouncedQuery, macro, sub, sort])
+
+  useEffect(() => { runQuery(0, true) }, [debouncedQuery, macro, sub, sort]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="page-content">
@@ -58,11 +67,11 @@ function CatalogueInner() {
       </div>
 
       <div className="chips">
-        {['Tous', ...MACRO_CATEGORIES].map((cat) => (
+        {['Tous', ...macroCategories.map((c) => c.nom)].map((cat) => (
           <button
             key={cat}
             className={macro === cat ? 'selected' : ''}
-            onClick={() => { setMacro(cat as MacroCategory | 'Tous'); router.replace(cat === 'Tous' ? '/catalogue' : `/catalogue?categorie=${encodeURIComponent(cat)}`) }}
+            onClick={() => { setMacro(cat); router.replace(cat === 'Tous' ? '/catalogue' : `/catalogue?categorie=${encodeURIComponent(cat)}`) }}
           >
             {cat}
           </button>
@@ -79,7 +88,7 @@ function CatalogueInner() {
       )}
 
       <div className="catalogue-toolbar">
-        <p>{filtered.length} article{filtered.length > 1 ? 's' : ''}</p>
+        <p>{products.length} article{products.length > 1 ? 's' : ''}{hasMore ? '+' : ''}</p>
         <select value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
           <option value="defaut">Tri par défaut</option>
           <option value="az">A → Z</option>
@@ -90,15 +99,22 @@ function CatalogueInner() {
 
       {loading ? (
         <div className="spinner" />
-      ) : filtered.length === 0 ? (
+      ) : products.length === 0 ? (
         <div className="empty">
           <SlidersHorizontal />
           <h2>Aucun article ne correspond à ta recherche</h2>
         </div>
       ) : (
-        <div className="product-grid">
-          {filtered.map((p) => <ProductCard key={p.id} product={p} />)}
-        </div>
+        <>
+          <div className="product-grid">
+            {products.map((p) => <ProductCard key={p.id} product={p} />)}
+          </div>
+          {hasMore && (
+            <button className="btn btn-outline full" style={{ marginTop: '1.2rem' }} disabled={loadingMore} onClick={() => runQuery(page + 1, false)}>
+              {loadingMore ? 'Chargement...' : 'Voir plus d\u2019articles'}
+            </button>
+          )}
+        </>
       )}
     </div>
   )

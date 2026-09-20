@@ -1,8 +1,10 @@
 {
+  "id": "/",
   "name": "Miliöh Sublime",
   "short_name": "Miliöh",
   "description": "Bijoux d’exception à Abidjan",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0A0A0A",
   "theme_color": "#C9A84C",
